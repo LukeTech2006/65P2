@@ -119,20 +119,12 @@ class memoryRegion:
     def __init__(self, start: int, size: int, mode: str) -> None:
         if len(mode) <= 2: self.mode = mode.lower()
         else: raise ValueError
-        self.start = start; self.size = size
+        self.start = start; self.size = size + 1
 
 class memory:
     def __init__(self, memoryMap: tuple[memoryRegion, ...]) -> None:
         self.memMap = memoryMap
-        self.memory = list(list(int() for j in range(0xff)) for i in range(0xff))
-
-        #initialize memory regions
-        for region in memoryMap:
-            hi_start, lo_start = self.load_address(region.start)
-            hi_size, lo_size = self.load_address(region.size)
-            for i in range(hi_start, hi_start + hi_size):
-                for j in range(lo_start, lo_start + lo_size):
-                    self.memory[i][j] = 0
+        self.memory = list(list(int(0) for j in range(0x100)) for i in range(0x100))
         
         #with open('memdump.txt', 'w') as file:
         #    for page in self.memory: file.write(''.join(hex(val)[2:].ljust(2, '0') + ' ' for val in page) + '\n')
@@ -178,17 +170,26 @@ YR = register(0x01)
 SP = register(0x01)
 P  = statusRegister()
 
+#define memory map for this 6502
+#   - zeropage ram:     $0000 - $00FF
+#   - stack:            $0100 - $01FF
+#   - program rom:      $0200 - $2FFF
+#   - main ram:         $3000 - $EFFF
+#   - i/o 0:            $FD00 - $FDFF
+#   - i/o 1_            $FE00 - $FEFF
+#   - reset vectors:    $FFFA - $FFFF
+
 memoryMap = (
     memoryRegion(0x0000, 0x00FF, 'rw'),     #zeropage ram
     memoryRegion(0x0100, 0x00FF, 'rw'),     #stack
     memoryRegion(0x0200, 0x2DFF, 'r'),      #program rom
     memoryRegion(0x3000, 0xBFFF, 'rw'),     #main ram
-    memoryRegion(0xFE00, 0x00FF, 'rw'),     #i/o 0
-    memoryRegion(0xFF00, 0x00FF, 'rw')      #i/o 1
+    memoryRegion(0xFD00, 0x00FF, 'rw'),     #i/o 0
+    memoryRegion(0xFE00, 0x00FF, 'rw'),     #i/o 1
+    memoryRegion(0xFFFA, 0x0005, 'rw'),     #reset vectors
 )
 
 main_memory = memory(memoryMap)
-
 
 AC.set(0xFF)
 print(AC.register)
