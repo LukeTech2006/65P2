@@ -126,18 +126,24 @@ class stackHandler:
         SP.set(0x0100) if stackpointer + 1 > 0x01FF else SP.set(stackpointer + 1)
         return stack_element
 
-class prgmCounterHandler:
+class prgmCounterHandler(register):
     def __init__(self) -> None:
-        raise NotImplementedError
+        super().__init__(0x02)
 
     def increment(self) -> None:
-        ...
+        accumulator = self.get()
+        self.set(accumulator + 1)
 
     def jmpRelative(self, oper: int) -> None:
-        ...
-    
+        accumulator = [self.get(), oper]
+        if accumulator[1] < 128: self.set(accumulator[0] + accumulator[1])
+        else:
+            accumulator[1] = 128 - (accumulator[1] - 128)
+            self.set(accumulator[0] - accumulator[1])
+            
     def jmpAbsolute(self, oper: int) -> None:
-        ...
+        accumulator = oper
+        self.set(accumulator)
 
 class aMode:
     implied = 0
@@ -147,6 +153,21 @@ class aMode:
     indirect = 4; x_indirect = 41; indirect_y = 42
     zeropage = 5; zeropage_x = 51; zeropage_y = 52
 
+class modeHandler:
+    stopped = 0
+    running = 1
+    interrupt = 2
+    mode = 0
+    
+    def __init__(self) -> None:
+        pass
+    
+    def setMode(self, mode: int) -> None:
+        self.mode = mode
+    
+    def getMode(self) -> int:
+        return self.mode
+        
 class instructionHandler:
     def __init__(self) -> None:
         pass
@@ -157,52 +178,51 @@ class instructionHandler:
         else: return False
 
     def _adc(self, addressing: int, oper: int) -> None:
-        match addressing:
-            case aMode.immediate:
-                if self.check_oper(oper, 1):
-                    accumulator = AC.get()
-                    accumulator += oper
-                else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
-            case aMode.zeropage:
-                if self.check_oper(oper, 1):
-                    accumulator = AC.get()
-                    accumulator += main_memory.read(0x00 + oper)
-                else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
-            case aMode.zeropage_x:
-                if self.check_oper(oper, 1):
-                    accumulator = AC.get()
-                    accumulator += main_memory.read(0x00 + oper + XR.get())
-                else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
-            case aMode.absolute:
-                if self.check_oper(oper, 2):
-                    accumulator = AC.get()
-                    accumulator += main_memory.read(oper)
-                else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
-            case aMode.absolute_x:
-                if self.check_oper(oper, 2):
-                    accumulator = AC.get()
-                    accumulator += main_memory.read(oper + XR.get())
-                else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
-            case aMode.absolute_y:
-                if self.check_oper(oper, 2):
-                    accumulator = AC.get()
-                    accumulator += main_memory.read(oper + YR.get())
-                else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
-            case aMode.x_indirect:
-                if self.check_oper(oper, 2):
-                    accumulator = AC.get()
-                    lo_byte, hi_byte = main_memory.read(oper + XR.get()), main_memory.read(oper + XR.get() + 1)
-                    lo_byte, hi_byte = hex(lo_byte)[2:].rjust(2, '0'), hex(hi_byte)[2:].rjust(2, '0')
-                    accumulator += main_memory.read(int(hi_byte + lo_byte, 16))
-                else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
-            case aMode.indirect_y:
-                if self.check_oper(oper, 2):
-                    accumulator = AC.get()
-                    lo_byte, hi_byte = main_memory.read(oper), main_memory.read(oper + 1)
-                    lo_byte, hi_byte = hex(lo_byte)[2:].rjust(2, '0'), hex(hi_byte)[2:].rjust(2, '0')
-                    accumulator += main_memory.read(int(hi_byte + lo_byte, 16) + YR.get())
-                else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
-            case _: raise TypeError('Invalid addressing mode!')
+        if addressing == aMode.immediate:
+            if self.check_oper(oper, 1):
+                accumulator = AC.get()
+                accumulator += oper
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        elif addressing == aMode.zeropage:
+            if self.check_oper(oper, 1):
+                accumulator = AC.get()
+                accumulator += main_memory.read(0x00 + oper)
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        elif addressing == aMode.zeropage_x:
+            if self.check_oper(oper, 1):
+                accumulator = AC.get()
+                accumulator += main_memory.read(0x00 + oper + XR.get())
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        elif addressing == aMode.absolute:
+            if self.check_oper(oper, 2):
+                accumulator = AC.get()
+                accumulator += main_memory.read(oper)
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        elif addressing == aMode.absolute_x:
+            if self.check_oper(oper, 2):
+                accumulator = AC.get()
+                accumulator += main_memory.read(oper + XR.get())
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        elif addressing == aMode.absolute_y:
+            if self.check_oper(oper, 2):
+                accumulator = AC.get()
+                accumulator += main_memory.read(oper + YR.get())
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        elif addressing == aMode.x_indirect:
+            if self.check_oper(oper, 2):
+                accumulator = AC.get()
+                lo_byte, hi_byte = main_memory.read(oper + XR.get()), main_memory.read(oper + XR.get() + 1)
+                lo_byte, hi_byte = hex(lo_byte)[2:].rjust(2, '0'), hex(hi_byte)[2:].rjust(2, '0')
+                accumulator += main_memory.read(int(hi_byte + lo_byte, 16))
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        elif addressing == aMode.indirect_y:
+            if self.check_oper(oper, 2):
+                accumulator = AC.get()
+                lo_byte, hi_byte = main_memory.read(oper), main_memory.read(oper + 1)
+                lo_byte, hi_byte = hex(lo_byte)[2:].rjust(2, '0'), hex(hi_byte)[2:].rjust(2, '0')
+                accumulator += main_memory.read(int(hi_byte + lo_byte, 16) + YR.get())
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        else: raise TypeError('Invalid addressing mode!')
 
         #if carry set, add 1
         if P.getCarry() == 1: accumulator += 1
@@ -226,52 +246,51 @@ class instructionHandler:
         return
 
     def _and(self, addressing: int, oper: int) -> None:
-        match addressing:
-            case aMode.immediate:
-                if self.check_oper(oper, 1):
-                    accumulator = AC.get()
-                    accumulator &= oper
-                else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
-            case aMode.zeropage:
-                if self.check_oper(oper, 1):
-                    accumulator = AC.get()
-                    accumulator &= main_memory.read(0x00 + oper)
-                else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
-            case aMode.zeropage_x:
-                if self.check_oper(oper, 1):
-                    accumulator = AC.get()
-                    accumulator &= main_memory.read(0x00 + oper + XR.get())
-                else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
-            case aMode.absolute:
-                if self.check_oper(oper, 2):
-                    accumulator = AC.get()
-                    accumulator &= main_memory.read(oper)
-                else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
-            case aMode.absolute_x:
-                if self.check_oper(oper, 2):
-                    accumulator = AC.get()
-                    accumulator &= main_memory.read(oper + XR.get())
-                else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
-            case aMode.absolute_y:
-                if self.check_oper(oper, 2):
-                    accumulator = AC.get()
-                    accumulator &= main_memory.read(oper + YR.get())
-                else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
-            case aMode.x_indirect:
-                if self.check_oper(oper, 2):
-                    accumulator = AC.get()
-                    lo_byte, hi_byte = main_memory.read(oper + XR.get()), main_memory.read(oper + XR.get() + 1)
-                    lo_byte, hi_byte = hex(lo_byte)[2:].rjust(2, '0'), hex(hi_byte)[2:].rjust(2, '0')
-                    accumulator &= main_memory.read(int(hi_byte + lo_byte, 16))
-                else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
-            case aMode.indirect_y:
-                if self.check_oper(oper, 2):
-                    accumulator = AC.get()
-                    lo_byte, hi_byte = main_memory.read(oper), main_memory.read(oper + 1)
-                    lo_byte, hi_byte = hex(lo_byte)[2:].rjust(2, '0'), hex(hi_byte)[2:].rjust(2, '0')
-                    accumulator &= main_memory.read(int(hi_byte + lo_byte, 16) + YR.get())
-                else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
-            case _: raise TypeError('Invalid addressing mode!')
+        if addressing == aMode.immediate:
+            if self.check_oper(oper, 1):
+                accumulator = AC.get()
+                accumulator &= oper
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        elif addressing == aMode.zeropage:
+            if self.check_oper(oper, 1):
+                accumulator = AC.get()
+                accumulator &= main_memory.read(0x00 + oper)
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        elif addressing == aMode.zeropage_x:
+            if self.check_oper(oper, 1):
+                accumulator = AC.get()
+                accumulator &= main_memory.read(0x00 + oper + XR.get())
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        elif addressing == aMode.absolute:
+            if self.check_oper(oper, 2):
+                accumulator = AC.get()
+                accumulator &= main_memory.read(oper)
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        elif addressing == aMode.absolute_x:
+            if self.check_oper(oper, 2):
+                accumulator = AC.get()
+                accumulator &= main_memory.read(oper + XR.get())
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        elif addressing == aMode.absolute_y:
+            if self.check_oper(oper, 2):
+                accumulator = AC.get()
+                accumulator &= main_memory.read(oper + YR.get())
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        elif addressing == aMode.x_indirect:
+            if self.check_oper(oper, 2):
+                accumulator = AC.get()
+                lo_byte, hi_byte = main_memory.read(oper + XR.get()), main_memory.read(oper + XR.get() + 1)
+                lo_byte, hi_byte = hex(lo_byte)[2:].rjust(2, '0'), hex(hi_byte)[2:].rjust(2, '0')
+                accumulator &= main_memory.read(int(hi_byte + lo_byte, 16))
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        elif addressing == aMode.indirect_y:
+            if self.check_oper(oper, 2):
+                accumulator = AC.get()
+                lo_byte, hi_byte = main_memory.read(oper), main_memory.read(oper + 1)
+                lo_byte, hi_byte = hex(lo_byte)[2:].rjust(2, '0'), hex(hi_byte)[2:].rjust(2, '0')
+                accumulator &= main_memory.read(int(hi_byte + lo_byte, 16) + YR.get())
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        else: raise TypeError('Invalid addressing mode!')
 
         #check zero
         if AC.get() == 0: P.setZero()
@@ -286,126 +305,235 @@ class instructionHandler:
         return
 
     def _asl(self, addressing: int, oper: int) -> None:
-            match addressing:
-                case aMode.implied: accumulator = AC.get()
-                case aMode.zeropage: accumulator = main_memory.read(oper) if self.check_oper(oper, 1) else ...
-                case aMode.zeropage_x: accumulator = main_memory.read(oper + XR.get()) if self.check_oper(oper, 1) else ...
-                case aMode.absolute: accumulator = main_memory.read(oper) if self.check_oper(oper, 2) else ...
-                case aMode.absolute_x: accumulator = main_memory.read(oper + XR.get()) if self.check_oper(oper, 2) else ...
-                case _: raise TypeError('Invalid addressing mode!')
+            
+            if addressing == aMode.implied: accumulator = AC.get()
+            elif addressing == aMode.zeropage: accumulator = main_memory.read(oper) if self.check_oper(oper, 1) else ...
+            elif addressing == aMode.zeropage_x: accumulator = main_memory.read(oper + XR.get()) if self.check_oper(oper, 1) else ...
+            elif addressing == aMode.absolute: accumulator = main_memory.read(oper) if self.check_oper(oper, 2) else ...
+            elif addressing == aMode.absolute_x: accumulator = main_memory.read(oper + XR.get()) if self.check_oper(oper, 2) else ...
+            else: raise TypeError('Invalid addressing mode!')
             if accumulator == ...: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
 
             if bin(accumulator)[2:].rjust(8, '0')[0] == '1': P.setCarry()
             else: P.clearCarry()
 
             accumulator <<= 1
-            match addressing:
-                case aMode.implied: AC.set(accumulator)
-                case aMode.zeropage: main_memory.write(oper, accumulator) if self.check_oper(oper, 1) else ...
-                case aMode.zeropage_x: main_memory.write(oper + XR.get(), accumulator) if self.check_oper(oper, 1) else ...
-                case aMode.absolute: main_memory.write(oper, accumulator) if self.check_oper(oper, 2) else ...
-                case aMode.absolute_x: main_memory.write(oper + XR.get(), accumulator) if self.check_oper(oper, 2) else ...
+            
+            if addressing == aMode.implied: AC.set(accumulator)
+            elif addressing == aMode.zeropage: main_memory.write(oper, accumulator) if self.check_oper(oper, 1) else ...
+            elif addressing == aMode.zeropage_x: main_memory.write(oper + XR.get(), accumulator) if self.check_oper(oper, 1) else ...
+            elif addressing == aMode.absolute: main_memory.write(oper, accumulator) if self.check_oper(oper, 2) else ...
+            elif addressing == aMode.absolute_x: main_memory.write(oper + XR.get(), accumulator) if self.check_oper(oper, 2) else ...
 
     def _bcc(self, addressing: int, oper: int) -> None:
-        match addressing:
-            case aMode.relative:
-                if self.check_oper(oper, 1):
-                    if P.getCarry() == 0:
-                        accumulator = PC.get()
-                        if oper > 0x80: PC.set(accumulator - (oper - 0x80) - 1)
-                        else: PC.set(accumulator + oper - 1)
-                else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
-            case _: raise TypeError('Invalid adressing mode!')
+        if addressing == aMode.relative:
+            if self.check_oper(oper, 1):
+                if P.getCarry() == 0: PC.jmpRelative(oper)
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        else: raise TypeError('Invalid adressing mode!')
         return
     
     def _bcs(self, addressing: int, oper: int) -> None:
-        match addressing:
-            case aMode.relative:
-                if self.check_oper(oper, 1):
-                    if P.getCarry() == 1:
-                        accumulator = PC.get()
-                        if oper > 0x80: PC.set(accumulator - (oper - 0x80) - 1)
-                        else: PC.set(accumulator + oper - 1)
-                else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
-            case _: raise TypeError('Invalid adressing mode!')
+        if addressing == aMode.relative:
+            if self.check_oper(oper, 1):
+                if P.getCarry() == 1: PC.jmpRelative(oper)
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        else: raise TypeError('Invalid adressing mode!')
         return
     
     def _beq(self, addressing: int, oper: int) -> None:
-        match addressing:
-            case aMode.relative:
-                if self.check_oper(oper, 1):
-                    if P.getZero() == 1:
-                        accumulator = PC.get()
-                        if oper > 0x80: PC.set(accumulator - (oper - 0x80) - 1)
-                        else: PC.set(accumulator + oper - 1)
-                else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
-            case _: raise TypeError('Invalid adressing mode!')
+        if addressing == aMode.relative:
+            if self.check_oper(oper, 1):
+                if P.getZero() == 1: PC.jmpRelative(oper)
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        else: raise TypeError('Invalid adressing mode!')
         return
     
     def _bit(self, addressing: int, oper: int) -> None:
-        match addressing:
-            case aMode.zeropage:
-                if self.check_oper(oper, 1):
-                    accumulator = [AC.get(), main_memory.read(oper)]
-                    byte_operand = bin(accumulator[1])[2:].rjust(8, '0')
-                    
-                    P.setOverflow() if byte_operand[6] == '1' else P.clearOverflow()
-                    P.setNegative() if byte_operand[7] == '1' else P.clearNegative()
-                    P.setZero()     if accumulator[0] & accumulator[1] == 0 else ...
-                else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
-            case aMode.absolute:
-                if self.check_oper(oper, 2):
-                    accumulator = [AC.get(), main_memory.read(oper)]
-                    byte_operand = bin(accumulator[1])[2:].rjust(8, '0')
-                    
-                    P.setOverflow() if byte_operand[6] == '1' else P.clearOverflow()
-                    P.setNegative() if byte_operand[7] == '1' else P.clearNegative()
-                    P.setZero()     if accumulator[0] & accumulator[1] == 0 else ...
-                else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
-            case _: raise TypeError('Invalid addressing mode!')
+        if addressing == aMode.zeropage:
+            if self.check_oper(oper, 1):
+                accumulator = [AC.get(), main_memory.read(oper)]
+                byte_operand = bin(accumulator[1])[2:].rjust(8, '0')
+                
+                P.setOverflow() if byte_operand[6] == '1' else P.clearOverflow()
+                P.setNegative() if byte_operand[7] == '1' else P.clearNegative()
+                P.setZero()     if accumulator[0] & accumulator[1] == 0 else ...
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        elif addressing == aMode.absolute:
+            if self.check_oper(oper, 2):
+                accumulator = [AC.get(), main_memory.read(oper)]
+                byte_operand = bin(accumulator[1])[2:].rjust(8, '0')
+                
+                P.setOverflow() if byte_operand[6] == '1' else P.clearOverflow()
+                P.setNegative() if byte_operand[7] == '1' else P.clearNegative()
+                P.setZero()     if accumulator[0] & accumulator[1] == 0 else ...
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        else: raise TypeError('Invalid addressing mode!')
 
     def _bmi(self, addressing: int, oper: int) -> None:
-        match addressing:
-            case aMode.relative:
-                if self.check_oper(oper, 1):
-                    if P.getNegative() == 1:
-                        accumulator = PC.get()
-                        if oper > 0x80: PC.set(accumulator - (oper - 0x80) - 1)
-                        else: PC.set(accumulator + oper - 1)
-                else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
-            case _: raise TypeError('Invalid adressing mode!')
+        if addressing == aMode.relative:
+            if self.check_oper(oper, 1):
+                if P.getNegative() == 1: PC.jmpRelative(oper)
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        else: raise TypeError('Invalid adressing mode!')
         return
 
     def _bne(self, addressing: int, oper: int) -> None:
-        match addressing:
-            case aMode.relative:
-                if self.check_oper(oper, 1):
-                    if P.getZero() == 0:
-                        accumulator = PC.get()
-                        if oper > 0x80: PC.set(accumulator - (oper - 0x80) - 1)
-                        else: PC.set(accumulator + oper - 1)
-                else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
-            case _: raise TypeError('Invalid adressing mode!')
+        if addressing == aMode.relative:
+            if self.check_oper(oper, 1):
+                if P.getZero() == 0: PC.jmpRelative(oper)
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        else: raise TypeError('Invalid adressing mode!')
         return
 
     def _bpl(self, addressing: int, oper: int) -> None:
-        match addressing:
-            case aMode.relative:
-                if self.check_oper(oper, 1):
-                    if P.getNegative() == 0:
-                        accumulator = PC.get()
-                        if oper > 0x80: PC.set(accumulator - (oper - 0x80) - 1)
-                        else: PC.set(accumulator + oper - 1)
-                else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
-            case _: raise TypeError('Invalid adressing mode!')
+        if addressing == aMode.relative:
+            if self.check_oper(oper, 1):
+                if P.getNegative() == 0: PC.jmpRelative(oper)
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        else: raise TypeError('Invalid adressing mode!')
         return
 
     def _brk(self, addressing: int, oper: int) -> None:
-        match addressing:
-            case aMode.implied:
-                lo_byte, hi_byte = hex(PC.get())[2:].rjust(2, '0')[2:4], hex(PC.get())[2:].rjust(2, '0')[-2:]
+        if addressing == aMode.implied:
+            lo_byte, hi_byte = PC.get() & 0x00ff, PC.get() & 0xff00
+            stack.push(lo_byte); stack.push(hi_byte)
 
-            case _: raise TypeError('Invalid addressing mode!')
+            statusbits = str()
+            for x in [P.getNegative(), P.getOverflow(), 1, 1, P.getDecimal(), P.getInterrupt(), P.getZero(), P.getCarry()]:
+                statusbits += str(x)
+            stack.push(int(statusbits, 2))
+            
+            processor.setMode(modeHandler.interrupt)
+                
+        else: raise TypeError('Invalid addressing mode!')
+
+    def _bvc(self, addressing: int, oper: int) -> None:
+        if addressing == aMode.relative:
+            if self.check_oper(oper, 1):
+                if P.getOverflow() == 0: PC.jmpRelative(oper)
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        else: raise TypeError('Invalid adressing mode!')
+        return
+
+    def _bvs(self, addressing: int, oper: int) -> None:
+        if addressing == aMode.relative:
+            if self.check_oper(oper, 1):
+                if P.getOverflow() == 1: PC.jmpRelative(oper)
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        else: raise TypeError('Invalid adressing mode!')
+        return
+
+    def _clc(self, addressing: int, oper: int) -> None:
+        if addressing == aMode.implied: P.clearCarry()
+        else: raise TypeError('Invalid addressing mode!')
+            
+    def _cld(self, addressing: int, oper: int) -> None:
+        if addressing == aMode.implied: P.clearDecimal()
+        else: raise TypeError('Invalid addressing mode!')
+            
+    def _cli(self, addressing: int, oper: int) -> None:
+        if addressing == aMode.implied: P.clearInterrupt()
+        else: raise TypeError('Invalid addressing mode!')
+            
+    def _clv(self, addressing: int, oper: int) -> None:
+        if addressing == aMode.implied: P.clearOverflow()
+        else: raise TypeError('Invalid addressing mode!')
+            
+    def _cmp(self, addressing: int, oper: int) -> None:
+        if addressing == aMode.immediate:
+            if self.check_oper(oper, 1):
+                accumulator = oper
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        elif addressing == aMode.zeropage:
+            if self.check_oper(oper, 1):
+                accumulator = main_memory.read(0x00 + oper)
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        elif addressing == aMode.zeropage_x:
+            if self.check_oper(oper, 1):
+                accumulator = main_memory.read(oper + XR.get())
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        elif addressing == aMode.absolute:
+            if self.check_oper(oper, 2):
+                accumulator = main_memory.read(oper)
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        elif addressing == aMode.absolute_x:
+            if self.check_oper(oper, 2):
+                accumulator = main_memory.read(oper + XR.get())
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        elif addressing == aMode.absolute_y:
+            if self.check_oper(oper, 2):
+                accumulator = main_memory.read(oper + YR.get())
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        elif addressing == aMode.x_indirect:
+            if self.check_oper(oper, 2):
+                lo_byte, hi_byte = main_memory.read(oper + XR.get()), main_memory.read(oper + XR.get() + 1)
+                lo_byte, hi_byte = hex(lo_byte)[2:].rjust(2, '0'), hex(hi_byte)[2:].rjust(2, '0')
+                accumulator = main_memory.read(int(hi_byte + lo_byte, 16))
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        elif addressing == aMode.indirect_y:
+            if self.check_oper(oper, 2):
+                lo_byte, hi_byte = main_memory.read(oper), main_memory.read(oper + 1)
+                lo_byte, hi_byte = hex(lo_byte)[2:].rjust(2, '0'), hex(hi_byte)[2:].rjust(2, '0')
+                accumulator = main_memory.read(int(hi_byte + lo_byte, 16) + YR.get())
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        else: raise TypeError('Invalid addressing Mode!')
+        
+        accumulator = AC.get() - accumulator
+        if accumulator == 0:
+            P.clearNegative(); P.setZero(); P.setCarry()
+        elif accumulator > 0:
+            P.clearNegative() if oper & 0x80 == 0 else P.setNegative(); P.clearZero(); P.clearCarry()
+        elif accumulator < 0:
+            P.clearNegative() if oper & 0x80 == 0 else P.setNegative(); P.clearZero(); P.setCarry()
+
+    def _cpx(self, addressing: int, oper: int) -> None:
+        if addressing == aMode.immediate:
+            if self.check_oper(oper, 1):
+                accumulator = oper
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        elif addressing == aMode.zeropage:
+            if self.check_oper(oper, 1):
+                accumulator = main_memory.read(0x00 + oper)
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        elif addressing == aMode.absolute:
+            if self.check_oper(oper, 2):
+                accumulator = main_memory.read(oper)
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        else: raise TypeError('Invalid addressing Mode!')
+        
+        accumulator = XR.get() - accumulator
+        if accumulator == 0:
+            P.clearNegative(); P.setZero(); P.setCarry()
+        elif accumulator > 0:
+            P.clearNegative() if oper & 0x80 == 0 else P.setNegative(); P.clearZero(); P.clearCarry()
+        elif accumulator < 0:
+            P.clearNegative() if oper & 0x80 == 0 else P.setNegative(); P.clearZero(); P.setCarry()
+
+    def _cpy(self, addressing: int, oper: int) -> None:
+        if addressing == aMode.immediate:
+            if self.check_oper(oper, 1):
+                accumulator = oper
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        elif addressing == aMode.zeropage:
+            if self.check_oper(oper, 1):
+                accumulator = main_memory.read(0x00 + oper)
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        elif addressing == aMode.absolute:
+            if self.check_oper(oper, 2):
+                accumulator = main_memory.read(oper)
+            else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        else: raise TypeError('Invalid addressing Mode!')
+        
+        accumulator = YR.get() - accumulator
+        if accumulator == 0:
+            P.clearNegative(); P.setZero(); P.setCarry()
+        elif accumulator > 0:
+            P.clearNegative() if oper & 0x80 == 0 else P.setNegative(); P.clearZero(); P.clearCarry()
+        elif accumulator < 0:
+            P.clearNegative() if oper & 0x80 == 0 else P.setNegative(); P.clearZero(); P.setCarry()
+
+
 
 class memoryRegion:
     def __init__(self, start: int, size: int, mode: str) -> None:
@@ -487,6 +615,7 @@ memoryMap = (
 main_memory = memoryHandler(memoryMap)      #initialize memory handler w/ memory map
 instr = instructionHandler()                #initialize instruction handler methods
 stack = stackHandler()                      #initialize stack handler methods
+processor = modeHandler()                   #initialize mode handler methods
 
 print(AC.get(), P.register)
 instr._adc(aMode.immediate, 0x08)
