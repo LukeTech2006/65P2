@@ -1,113 +1,80 @@
 class register:
     def __init__(self, size: int, preLoad = 0) -> None:
-        self.register = str()
+        self.register = preLoad
         self.size = size*8
-        for i in range(self.size): self.register += '0'
-        self.set(preLoad)
 
     def set(self, value: int) -> None:
-        if len(bin(value)[2:]) <= self.size:
-            self.register = bin(value)[2:].rjust(self.size, '0')
-        else:
-            self.register = bin(value)[-self.size:]
+        self.register = value
     
     def get(self) -> int:
-        return int(self.register, 2)
+        return self.register
 
-class statusRegister:
+class statusRegister(register):
     def __init__(self) -> None:
-        self.register = '00100000'
+        super().__init__(1, 0b00100000)
     
     def setNegative(self) -> None:
-        newState = [x for x in self.register]
-        newState[0] = '1'
-        self.register = ''.join(newState)
+        self.register |= 0x80
 
     def clearNegative(self) -> None:
-        newState = [x for x in self.register]
-        newState[0] = '0'
-        self.register = ''.join(newState)
+        self.register &= 0x7F
     
     def getNegative(self) -> int:
-        return int(self.register[0])
+        return 1 if self.register & 0x80 > 0 else 0
 
     def setOverflow(self) -> None:
-        newState = [x for x in self.register]
-        newState[1] = '1'
-        self.register = ''.join(newState)
+        self.register |= 0x40
 
     def clearOverflow(self) -> None:
-        newState = [x for x in self.register]
-        newState[1] = '0'
-        self.register = ''.join(newState)
+        self.register &= 0xBF
 
     def getOverflow(self) -> int:
-        return int(self.register[1])
+        return 1 if self.register & 0x40 > 0 else 0
 
     def setBreak(self) -> None:
-        newState = [x for x in self.register]
-        newState[3] = '1'
-        self.register = ''.join(newState)
+        self.register |= 0x10
 
     def clearBreak(self) -> None:
-        newState = [x for x in self.register]
-        newState[3] = '0'
-        self.register = ''.join(newState)
+        self.register &= 0xEF
 
     def getBreak(self) -> int:
-        return int(self.register[3])
+        return 1 if self.register & 0x10 > 0 else 0
 
     def setDecimal(self) -> None:
-        newState = [x for x in self.register]
-        newState[4] = '1'
-        self.register = ''.join(newState)
+        self.register |= 0x08
 
     def clearDecimal(self) -> None:
-        newState = [x for x in self.register]
-        newState[4] = '0'
-        self.register = ''.join(newState)
+        self.register &= 0xF7
 
     def getDecimal(self) -> int:
-        return int(self.register[4])
+        return 1 if self.register & 0x08 > 0 else 0
 
     def setInterrupt(self) -> None:
-        newState = [x for x in self.register]
-        newState[5] = '1'
-        self.register = ''.join(newState)
+        self.register |= 0x04
 
     def clearInterrupt(self) -> None:
-        newState = [x for x in self.register]
-        newState[5] = '0'
-        self.register = ''.join(newState)
+        self.register &= 0xFB
 
     def getInterrupt(self) -> int:
-        return int(self.register[5])
+        return 1 if self.register & 0x04 > 0 else 0
 
     def setZero(self) -> None:
-        newState = [x for x in self.register]
-        newState[6] = '1'
-        self.register = ''.join(newState)
+        self.register |= 0x02
 
     def clearZero(self) -> None:
-        newState = [x for x in self.register]
-        newState[6] = '0'
-        self.register = ''.join(newState)
+        self.register &= 0xFD
 
     def getZero(self) -> int:
-        return int(self.register[6])
+        return 1 if self.register & 0x02 > 0 else 0
 
     def setCarry(self) -> None:
-        newState = [x for x in self.register]
-        newState[7] = '1'
-        self.register = ''.join(newState)
+        self.register |= 0x01
 
     def clearCarry(self) -> None:
-        newState = [x for x in self.register]
-        newState[7] = '0'
-        self.register = ''.join(newState)
+        self.register &= 0xFE
 
     def getCarry(self) -> int:
-        return int(self.register[7])
+        return 1 if self.register & 0x01 > 0 else 0
 
 class stackHandler:
     def __init__(self) -> None:
@@ -173,9 +140,7 @@ class instructionHandler:
         pass
     
     def check_oper(self, oper: int, size: int) -> bool:
-        oper_hex = hex(oper)[2:].rjust(size*2, '0')
-        if len(oper_hex) == size*2: return True
-        else: return False
+        return True if oper < pow(2, size*8) else False
 
     def _adc(self, addressing: int, oper: int) -> None:
         if addressing == aMode.immediate:
@@ -517,7 +482,7 @@ class instructionHandler:
             else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
         elif addressing == aMode.zeropage:
             if self.check_oper(oper, 1):
-                accumulator = main_memory.read(0x00 + oper)
+                accumulator = main_memory.read(oper % 256)
             else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
         elif addressing == aMode.absolute:
             if self.check_oper(oper, 2):
@@ -533,7 +498,31 @@ class instructionHandler:
         elif accumulator < 0:
             P.clearNegative() if oper & 0x80 == 0 else P.setNegative(); P.clearZero(); P.setCarry()
 
-
+    #def _dec(self, addressing: int, oper: int) -> None:
+        #if addressing == aMode.zeropage:
+        #    if self.check_oper(oper, 2):
+        #        accumulator = main_memory.read(oper % 256)
+        #    else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        #elif addressing == aMode.zeropage_x:
+        #    if self.check_oper(oper, 2):
+        #        accumulator = main_memory.read((oper + XR.get()) % 256)
+        #    else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        #elif addressing == aMode.absolute:
+        #    if self.check_oper(oper, 3):
+        #        accumulator = main_memory.read(oper)
+        #    else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        #elif addressing == aMode.absolute_x:
+        #    if self.check_oper(oper, 3):
+        #        accumulator = main_memory.read(oper + XR.get())
+        #    else: raise ValueError(f'Operand {hex(oper)} invalid for addressing mode!')
+        #else: raise TypeError('Invalid addressing Mode!')
+        
+        #if accumulator == 0:
+        #    P.clearNegative(); P.setZero(); P.setCarry()
+        #elif accumulator > 0:
+        #    P.clearNegative() if oper & 0x80 == 0 else P.setNegative(); P.clearZero(); P.clearCarry()
+        #elif accumulator < 0:
+        #    P.clearNegative() if oper & 0x80 == 0 else P.setNegative(); P.clearZero(); P.setCarry()
 
 class memoryRegion:
     def __init__(self, start: int, size: int, mode: str) -> None:
